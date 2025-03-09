@@ -169,12 +169,12 @@ class Predictor(BasePredictor):
     #     controlnet_hough_path = os.path.join(MODEL_CACHE, controlnet_hough_file)
 
 
-    def _setup_torch_environment(self) -> None:
+    def _setup_torch_environment(self):
         """Configure torch settings"""
         torch.set_default_dtype(DTYPE)
         torch.set_default_device(DEVICE)
 
-    def _load_diffusion_model(self) -> None:
+    def _load_diffusion_model(self):
         """Load the diffusion model"""
         self.diffusion = Diffusion(
             base_model_name=self.base_model_name,
@@ -186,7 +186,7 @@ class Predictor(BasePredictor):
         # Initialize the model
         self.diffusion._initialize()
 
-    def _log_timing(self, step: str, start_time: float) -> None:
+    def _log_timing(self, step: str, start_time: float):
         """Log the execution time of a step"""
         duration = perf_counter() - start_time
         print(f"{step} completed in {duration:.2f} seconds")
@@ -238,20 +238,20 @@ class Predictor(BasePredictor):
         ),
         prompt: str = Input(
             description="Text prompt for guidance",
-            default="",
+            
         ),
         negative_prompt: str = Input(
             description="Negative text prompt for guidance",
-            default="",
+            
         ),
         control_url: str = Input(
             description="URL of the control image (optional)",
-            default=None,
+            
         ),
         control_type: str = Input(
             description="Type of control to use",
-            choices=["segmentation_mask", "straight_line", None],
-            default=None,
+            choices=["segmentation_mask", "straight_line", "none"],
+            default="none",
         ),
         num_images: int = Input(
             description="Number of images to generate",
@@ -297,7 +297,7 @@ class Predictor(BasePredictor):
         ),
         seed: int = Input(
             description="Random seed (-1 for random)",
-            default=-1,
+            default=22,
         ),
         output_format: str = Input(
             description="Output image format",
@@ -385,7 +385,7 @@ class Predictor(BasePredictor):
 
         self._log_timing("Image encoding", encode_start)
         self._log_timing("Total processing", total_start)
-
+        
         return Path(output_path)
         
     def __del__(self):
