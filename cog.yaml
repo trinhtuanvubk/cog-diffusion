@@ -4,6 +4,8 @@ build:
   python_packages:
     - "panda"
     - "einops"
+    - "loguru"
+    - "scipy"
     - "diffusers"
     - "torch"
     - "transformers"

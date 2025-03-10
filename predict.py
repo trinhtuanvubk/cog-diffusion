@@ -6,28 +6,33 @@ import subprocess
 from io import BytesIO
 from time import perf_counter
 from urllib.parse import urlparse
+from typing import Optional
 
 import cv2
 import numpy as np
 import torch
 from cog import BasePredictor, Input, Path
 from PIL import Image
-from diffusers import AutoencoderKL, DiffusionPipeline, ControlNetModel
+from diffusers import (ControlNetModel, 
+                    StableDiffusionControlNetInpaintPipeline,
+                    StableDiffusionInpaintPipeline)
+
 
 from models.diffusion import Diffusion
 import shutil
 
 MODEL_CACHE = "/tmp/huggingface_cache"
 CACHE_DIR = MODEL_CACHE
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = "cuda"
 DTYPE = torch.get_default_dtype()
 
 # Define cache directory - this will be the single source of truth for models
 
 # Model IDs and URLs
-PATH_DIFFUSION_BASE_MODEL = os.getenv("HUGGINGFACE_MODEL_PIPELINE", "botp/stable-diffusion-v1-5-inpainting")
-PATH_DIFFUSION_CONTROLNET_SEG = os.getenv("HUGGINGFACE_MODEL_CONTROLNET_SEG", "lllyasviel/control_v11p_sd15_seg")
-PATH_DIFFUSION_CONTROLNET_HOUGH = os.getenv("HUGGINGFACE_MODEL_CONTROLNET_MLSD", "lllyasviel/control_v11p_sd15_mlsd")
+PATH_DIFFUSION_BASE_MODEL = "botp/stable-diffusion-v1-5-inpainting"
+PATH_DIFFUSION_BASE_MODEL = "stable-diffusion-v1-5/stable-diffusion-inpainting"
+PATH_DIFFUSION_CONTROLNET_SEG = "lllyasviel/control_v11p_sd15_seg"
+PATH_DIFFUSION_CONTROLNET_HOUGH = "lllyasviel/control_v11p_sd15_mlsd"
 # PATH_MODEL_MLSD = os.getenv("MLSD_DETECTOR_MODEL", "lllyasviel/ControlNet")
 # PATH_MODEL_SEGFORMER = os.getenv("HUGGINGFACE_MODEL_SEGMENT", "nvidia/segformer-b5-finetuned-ade-640-640")
 
@@ -37,82 +42,82 @@ PATH_DIFFUSION_CONTROLNET_HOUGH = os.getenv("HUGGINGFACE_MODEL_CONTROLNET_MLSD",
 
 
 def download_models():
-    try:
-        # Reset cache if needed
-        if os.path.exists(CACHE_DIR):
-            print(f"Removing existing cache directory: {CACHE_DIR}")
-            shutil.rmtree(CACHE_DIR)
-        
-        # Create cache directory
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        
-        
+    
+    # Create cache directory
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    
+    model_exists = os.path.exists(os.path.join(CACHE_DIR, f"models--{PATH_DIFFUSION_CONTROLNET_SEG.replace('/', '--')}"))
+    if not model_exists:
         print("Downloading ControlNet-Seg model...")
         controlnet_seg = ControlNetModel.from_pretrained(
             PATH_DIFFUSION_CONTROLNET_SEG,
             torch_dtype=torch.float16,
             cache_dir=CACHE_DIR
         )
-        
+        del controlnet_seg
+
+    model_exists = os.path.exists(os.path.join(CACHE_DIR, f"models--{PATH_DIFFUSION_CONTROLNET_HOUGH.replace('/', '--')}"))
+    if not model_exists:
         print("Downloading ControlNet-MLSD (Hough) model...")
         controlnet_hough = ControlNetModel.from_pretrained(
             PATH_DIFFUSION_CONTROLNET_HOUGH,
             torch_dtype=torch.float16,
             cache_dir=CACHE_DIR
         )
+        del controlnet_hough
         
-        
-        print("Downloading base diffusion model...")
-        # First get VAE for better precision
-        vae = AutoencoderKL.from_pretrained(
-            "stabilityai/sd-vae-ft-mse",
-            torch_dtype=torch.float16,
-            cache_dir=CACHE_DIR
-        )
-        
+    # model_exists = os.path.exists(os.path.join(CACHE_DIR, "models--stabilityai/sd-vae-ft-mse".replace('/', '--')))
+    # if not model_exists:
+    #     print("Downloading base diffusion model...")
+    #     # First get VAE for better precision
+    #     vae = AutoencoderKL.from_pretrained(
+    #         "stabilityai/sd-vae-ft-mse",
+    #         torch_dtype=torch.float16,
+    #         cache_dir=CACHE_DIR
+    #     )
+    
+    model_exists = os.path.exists(os.path.join(CACHE_DIR, f"models--{PATH_DIFFUSION_BASE_MODEL.replace('/', '--')}"))
+    if not model_exists:
+    # if 1:
         # Get main pipeline with VAE
-        pipe = DiffusionPipeline.from_pretrained(
+        pipe = StableDiffusionInpaintPipeline.from_pretrained(
             PATH_DIFFUSION_BASE_MODEL,
-            vae=vae,
+             variant='fp16',
             torch_dtype=torch.float16,
-            variant='fp16',
             cache_dir=CACHE_DIR,
-            safety_checker=None
+            # safety_checker=None,
+            
+            # use_safetensors=False
         )
-        
-        # Verify models are in cache
-        model_files = os.listdir(CACHE_DIR)
-        del pipe, vae, control_seg controlnet_hough
-        
-        return {
-            "status": "success",
-            "message": "All models downloaded successfully to cache",
-            "cache_dir": CACHE_DIR,
-            "models": {
-                "base_model": PATH_DIFFUSION_BASE_MODEL,
-                "controlnet_seg": PATH_DIFFUSION_CONTROLNET_SEG,
-                "controlnet_hough": PATH_DIFFUSION_CONTROLNET_HOUGH,
-            }
+        pipe.safety_checker.threshold = 0.9
+        print("==========")
+        del pipe
+    
+    # Verify models are in cache
+    model_files = os.listdir(CACHE_DIR)
+    
+    
+    return {
+        "status": "success",
+        "message": "All models downloaded successfully to cache",
+        "cache_dir": CACHE_DIR,
+        "models": {
+            "base_model": PATH_DIFFUSION_BASE_MODEL,
+            "controlnet_seg": PATH_DIFFUSION_CONTROLNET_SEG,
+            "controlnet_hough": PATH_DIFFUSION_CONTROLNET_HOUGH,
         }
-        
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        return {
-            "status": "error",
-            "message": str(e),
-            "traceback": error_traceback
-        }
+    }
 
 
 
 def download_image(url: str) -> Image.Image:
     """Download image from URL and return as PIL Image"""
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        return Image.open(BytesIO(response.content))
-    except Exception as e:
-        raise ValueError(f"Failed to download image from {url}: {str(e)}")
+    # try:
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return Image.open(BytesIO(response.content))
+    # except Exception as e:
+    #     raise ValueError(f"Failed to download image from {url}: {str(e)}")
 
 
 def resize_image(
@@ -143,16 +148,18 @@ class Predictor(BasePredictor):
         self.max_input_resolution = 1024
         
         # Model configuration
-        self.base_model_name = "stabilityai/stable-diffusion-2-inpainting"
+        self.base_model_name = "stable-diffusion-v1-5/stable-diffusion-inpainting"
         self.controlnet_seg_name = "lllyasviel/control_v11p_sd15_seg"
-        self.controlnet_hough_name = "lllyasviel/control_v11p_sd15_lineart"
-        self.scheduler_name = "DPMSolverMultistepScheduler"
-        
-        if not os.path.exists(MODEL_CACHE):
-            status = download_models()
+        self.controlnet_hough_name = "lllyasviel/control_v11p_sd15_mlsd"
+        # self.scheduler_name = "DPMSolverMultistepScheduler"
+                    
 
         # self._setup_model_cache()
+
         self._setup_torch_environment()
+
+        download_models()
+
         self._load_diffusion_model()
 
 
@@ -167,8 +174,8 @@ class Predictor(BasePredictor):
             base_model_name=self.base_model_name,
             controlnet_seg_name=self.controlnet_seg_name,
             controlnet_hough_name=self.controlnet_hough_name,
-            scheduler_name=self.scheduler_name,
-            force_cpu=DEVICE == "cpu"
+            # scheduler_name=self.scheduler_name,
+            # force_cpu=DEVICE == "cpu"
         )
         # Initialize the model
         self.diffusion._initialize()
@@ -229,11 +236,12 @@ class Predictor(BasePredictor):
         ),
         negative_prompt: str = Input(
             description="Negative text prompt for guidance",
+            default=None
             
         ),
         control_url: str = Input(
             description="URL of the control image (optional)",
-            
+            default=None
         ),
         control_type: str = Input(
             description="Type of control to use",
@@ -242,45 +250,50 @@ class Predictor(BasePredictor):
         ),
         num_images: int = Input(
             description="Number of images to generate",
-            default=1,
             ge=1,
             le=4,
+            default=1,
         ),
         num_steps: int = Input(
             description="Number of inference steps",
-            default=30,
             ge=10,
             le=100,
+            default=30,
+            
         ),
         guidance_scale: float = Input(
             description="Guidance scale for text prompt",
-            default=7.5,
             ge=1.0,
             le=20.0,
+            default=7.5
+            
         ),
         control_guidance_start: float = Input(
             description="Control guidance start value",
-            default=0.0,
             ge=0.0,
             le=1.0,
+            default=0.0
         ),
         control_guidance_end: float = Input(
             description="Control guidance end value",
-            default=1.0,
             ge=0.0,
             le=1.0,
+            default=1.0,
+           
         ),
         control_conditioning_scale: float = Input(
             description="Control conditioning scale",
-            default=1.0,
             ge=0.0,
             le=2.0,
+            default=1.0,
+           
         ),
         strength: float = Input(
             description="How strong the inpainting should be (0-1)",
-            default=0.8,
             ge=0.0,
             le=1.0,
+            default=0.8,
+ 
         ),
         seed: int = Input(
             description="Random seed (-1 for random)",
@@ -289,13 +302,13 @@ class Predictor(BasePredictor):
         output_format: str = Input(
             description="Output image format",
             choices=["jpg", "png"],
-            default="jpg",
+            default="png",
         ),
         output_quality: int = Input(
             description="Output image quality (0-100)",
-            default=95,
             ge=0,
             le=100,
+            default=95,
         ),
     ) -> Path:
         """Process image with diffusion-based inpainting and control guidance"""
@@ -322,6 +335,7 @@ class Predictor(BasePredictor):
 
         # Process the image with diffusion model
         inpaint_start = perf_counter()
+        # print(type(strength))
         output_images = self.diffusion._execute(
             input_image=image,
             prompt=prompt,
@@ -377,5 +391,37 @@ class Predictor(BasePredictor):
         
     def __del__(self):
         """Clean up resources when the predictor is destroyed"""
-        if hasattr(self, 'diffusion'):
-            self.diffusion._finalize()
+        # if hasattr(self, 'diffusion'):
+        print("==")
+            # self.diffusion._finalize()
+
+# if __name__=="__main__":
+#     image_url = f"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/inpaint.png"
+#     mask_url = f"https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/inpaint_mask.png"
+#     control_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/controlnet-img2img.jpg"
+
+#     # Run predictor
+#     predictor = Predictor()
+#     predictor.setup()
+    
+#     result = predictor.predict(
+#         image_url=image_url,
+#         mask_url=mask_url,
+#         prompt="empty",
+#         negative_prompt="blur",
+#         control_url=control_url,
+#         control_type="segmentation_mask",
+#         num_images=1,
+#         num_steps=30,
+#         guidance_scale=7.5,
+#         control_guidance_start=0.0,
+#         control_guidance_end=1.0,
+#         control_conditioning_scale=1.0,
+#         strength=0.8,
+#         seed=22,
+#         output_format="png",
+#         output_quality=95
+
+#     )
+    
+#     print(f"Processing complete! Result saved to: {result}")

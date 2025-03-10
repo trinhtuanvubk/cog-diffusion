@@ -1,0 +1,10 @@
+panda
+einops
+loguru
+scipy
+diffusers
+torch
+transformers
+opencv-python-headless
+accelerate
+huggingface-hub

@@ -351,6 +351,7 @@ if __name__ == "__main__":
             image=input_image,
             mask_image=mask_image,
             strength=1.0,
+            sigmas=None
         )
 
         # Save results

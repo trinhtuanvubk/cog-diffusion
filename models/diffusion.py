@@ -4,6 +4,7 @@ from diffusers import DPMSolverMultistepScheduler
 from PIL import Image
 import numpy as np
 from .diffusion_cropmask_wrapper import InpaintingCropWrapper
+from loguru import logger
 
 CACHE_DIR = "/tmp/huggingface_cache"
 
@@ -11,7 +12,8 @@ class Diffusion():
 
     def __init__(self, base_model_name=None, controlnet_seg_name=None, controlnet_hough_name=None, scheduler_name=None,
                  force_cpu=False):
-        super().__init__(force_cpu)
+        # super().__init__(force_cpu)
+        self.device = "cuda"
         self.base_model_name = base_model_name
         self.weight_type = torch.float32 if self.device == 'cpu' else torch.float16
         self.controlnet_seg_name = controlnet_seg_name
@@ -20,15 +22,19 @@ class Diffusion():
 
     def _initialize(self):
         # controlnet
-        self.logger.info("Loading controlnet seg from: " + self.controlnet_seg_name)
+        logger.info("Loading controlnet seg from: " + self.controlnet_seg_name)
         controlnet_seg = ControlNetModel.from_pretrained(self.controlnet_seg_name, torch_dtype=self.weight_type, cache_dir=CACHE_DIR, local_files_only=True)
-        self.logger.info("Loading controlnet hough from: " + self.controlnet_hough_name)
-        controlnet_hough = ControlNetModel.from_pretrained(self.controlnet_seg_name, torch_dtype=self.weight_type, cache_dir=CACHE_DIR, local_files_only=True)
+        logger.info("Loading controlnet hough from: " + self.controlnet_hough_name)
+        controlnet_hough = ControlNetModel.from_pretrained(self.controlnet_hough_name, torch_dtype=self.weight_type, cache_dir=CACHE_DIR, local_files_only=True)
         # pipelines
-        self.pipe_inpaint = StableDiffusionInpaintPipeline.from_pretrained(self.base_model_name,
-                                                                           torch_dtype=self.weight_type, cache_dir=CACHE_DIR, local_files_only=True)
-        self.pipe_inpaint.scheduler = DPMSolverMultistepScheduler.from_config(
-            self.pipe_inpaint.scheduler.config)
+        self.pipe_inpaint = StableDiffusionInpaintPipeline.from_pretrained(self.base_model_name,  variant='fp16',
+                                                                           torch_dtype=self.weight_type, cache_dir=CACHE_DIR, local_files_only=True, safety_checker=None)
+        # self.pipe_inpaint.to(self.device)
+
+        # self.pipe_inpaint.scheduler = DPMSolverMultistepScheduler.from_config(
+        #     self.pipe_inpaint.scheduler.config)
+
+        
         self.pipe_inpaint_hough = StableDiffusionControlNetInpaintPipeline.from_pipe(self.pipe_inpaint,
                                                                                      controlnet=controlnet_hough)
         self.pipe_inpaint_seg = StableDiffusionControlNetInpaintPipeline.from_pipe(self.pipe_inpaint,
@@ -56,11 +62,11 @@ class Diffusion():
                  mask_image: Image.Image,
                  control_type=None,
                  control_image: Image.Image = None,
-                 seed: int = -1,
+                 seed: int = 22,
                  padding_mask_crop=None):
         if seed == -1:
             seed = np.random.randint(0, np.iinfo(np.int64).max)
-        generator = torch.Generator().manual_seed(seed)
+        generator = torch.Generator().manual_seed(22)
         w, h = input_image.size
 
         if control_image and control_type == 'straight_line':
@@ -101,7 +107,7 @@ class Diffusion():
                                          padding_mask_crop=padding_mask_crop,
                                          width=w,
                                          height=h).images
-        elif control_type is None:
+        elif control_type==None or control_type=="none" or control_type=="":
             return self.pipe_inpaint(prompt=prompt,
                                      negative_prompt=negative_prompt,
                                      guidance_scale=guidance_scale,
@@ -118,5 +124,5 @@ class Diffusion():
         else:
             raise Exception('Unsupported control type')
 
-    def _finalize(self):
-        del self.pipe_inpaint_hough, self.pipe_inpaint_seg, self.pipe_inpaint
+    # def _finalize(self):
+        # del self.pipe_inpaint_hough, self.pipe_inpaint_seg, self.pipe_inpaint
