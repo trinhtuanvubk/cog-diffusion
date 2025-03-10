@@ -39,7 +39,7 @@ PATH_DIFFUSION_CONTROLNET_HOUGH = os.getenv("HUGGINGFACE_MODEL_CONTROLNET_MLSD",
 def download_models():
     try:
         # Reset cache if needed
-        if os.path.exists(CACHE_DIR) and os.getenv("RESET_CACHE", "0") == "1":
+        if os.path.exists(CACHE_DIR):
             print(f"Removing existing cache directory: {CACHE_DIR}")
             shutil.rmtree(CACHE_DIR)
         
@@ -82,6 +82,7 @@ def download_models():
         
         # Verify models are in cache
         model_files = os.listdir(CACHE_DIR)
+        del pipe, vae, control_seg controlnet_hough
         
         return {
             "status": "success",
@@ -147,26 +148,12 @@ class Predictor(BasePredictor):
         self.controlnet_hough_name = "lllyasviel/control_v11p_sd15_lineart"
         self.scheduler_name = "DPMSolverMultistepScheduler"
         
+        if not os.path.exists(MODEL_CACHE):
+            status = download_models()
+
         # self._setup_model_cache()
         self._setup_torch_environment()
         self._load_diffusion_model()
-
-    # def _setup_model_cache(self) -> None:
-    #     """Setup and download model weights if needed"""
-    #     os.makedirs(MODEL_CACHE, exist_ok=True)
-
-    #     # Download base model if needed
-    #     base_model_file = "models--stabilityai--stable-diffusion-2-inpainting.tar"
-    #     base_model_path = os.path.join(MODEL_CACHE, base_model_file)
-            
-    #     # Download controlnet_seg if needed
-    #     controlnet_seg_file = "models--lllyasviel--control_v11p_sd15_seg.tar"
-    #     controlnet_seg_path = os.path.join(MODEL_CACHE, controlnet_seg_file)
-
-            
-    #     # Download controlnet_hough if needed
-    #     controlnet_hough_file = "models--lllyasviel--control_v11p_sd15_lineart.tar"
-    #     controlnet_hough_path = os.path.join(MODEL_CACHE, controlnet_hough_file)
 
 
     def _setup_torch_environment(self):

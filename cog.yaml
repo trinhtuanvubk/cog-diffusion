@@ -2,9 +2,12 @@ build:
   gpu: true
   python_version: "3.10"
   python_packages:
+    - "panda"
+    - "einops"
     - "diffusers"
     - "torch"
     - "transformers"
+    - "opencv-python-headless"
     - "accelerate"
     - "huggingface-hub"
   run:
